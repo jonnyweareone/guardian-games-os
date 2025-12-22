@@ -19,6 +19,10 @@ on:
         description: 'Force rebuild even if no changes'
         required: false
         default: 'false'
+      build_iso:
+        description: 'Build ISO after container'
+        required: false
+        default: 'true'
 
 env:
   IMAGE_NAME: guardian-games
@@ -29,7 +33,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  build-container:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -40,26 +44,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Desktop variants
+          # Main desktop variant only for now
           - variant: main
             base_image: bazzite
             description: "Desktop with AMD/Intel GPU"
-          - variant: nvidia
-            base_image: bazzite-nvidia
-            description: "Desktop with Nvidia GPU"
-          - variant: gnome
-            base_image: bazzite-gnome
-            description: "Desktop GNOME with AMD/Intel"
-          - variant: gnome-nvidia
-            base_image: bazzite-gnome-nvidia
-            description: "Desktop GNOME with Nvidia"
-          # HTPC / Console variants
-          - variant: deck
-            base_image: bazzite-deck
-            description: "Steam Deck / HTPC (KDE)"
-          - variant: deck-gnome
-            base_image: bazzite-deck-gnome
-            description: "HTPC with GNOME"
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
+      image_digest: ${{ steps.build.outputs.digest }}
 
     steps:
       - name: Checkout
@@ -114,3 +106,100 @@ jobs:
             ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.variant }}
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+
+  build-iso:
+    needs: build-container
+    if: github.event_name != 'pull_request' && (github.event.inputs.build_iso == 'true' || github.event.inputs.build_iso == '')
+    runs-on: self-hosted
+    permissions:
+      contents: write
+      packages: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check disk space
+        run: df -h
+
+      - name: Login to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Pull Guardian Games OS image
+        run: |
+          podman pull ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main
+
+      - name: Generate ISO with bootc
+        id: iso
+        run: |
+          ISO_NAME="guardian-games-os-$(date +%Y%m%d).iso"
+          
+          # Create output directory
+          mkdir -p ./iso-output
+          
+          # Use bootc to generate ISO from container
+          # This creates a bootable ISO from the OCI image
+          sudo podman run --rm --privileged \
+            --security-opt label=type:unconfined_t \
+            -v ./iso-output:/output \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type iso \
+            --rootfs ext4 \
+            --local \
+            ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          
+          # Find the generated ISO
+          ISO_PATH=$(find ./iso-output -name "*.iso" -type f | head -1)
+          
+          if [ -z "$ISO_PATH" ]; then
+            echo "ERROR: No ISO found in output"
+            ls -la ./iso-output/
+            exit 1
+          fi
+          
+          # Rename to our standard name
+          mv "$ISO_PATH" "./iso-output/${ISO_NAME}"
+          
+          echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
+          echo "iso_path=./iso-output/${ISO_NAME}" >> $GITHUB_OUTPUT
+          ls -lh "./iso-output/${ISO_NAME}"
+
+      - name: Upload ISO as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardian-games-os-iso
+          path: ${{ steps.iso.outputs.iso_path }}
+          retention-days: 30
+
+      - name: Create/Update Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Create or update the latest release
+          gh release view latest 2>/dev/null && gh release delete latest -y || true
+          gh release create latest \
+            --title "Guardian Games OS - Latest Build" \
+            --notes "Built on $(date +%Y-%m-%d)
+          
+          ## Download
+          - **guardian-games-os.iso** - Bootable installer
+          
+          ## Installation
+          1. Download the ISO
+          2. Flash to USB with Balena Etcher or similar
+          3. Boot from USB
+          4. Follow the installer
+          5. On first boot, link your device to your Guardian account
+          " \
+            --latest
+          
+          # Upload the ISO
+          gh release upload latest "${{ steps.iso.outputs.iso_path }}" --clobber
+
+      - name: Cleanup
+        if: always()
+        run: |
+          sudo rm -rf ./iso-output
+          podman system prune -f || true
