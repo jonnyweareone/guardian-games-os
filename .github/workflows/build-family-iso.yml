@@ -35,8 +35,22 @@ jobs:
       packages: read
 
     steps:
+      - name: Maximize disk space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 4096
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Check disk space
+        run: df -h
 
       - name: Notify build started
         run: |
@@ -70,8 +84,6 @@ jobs:
       - name: Create family config
         run: |
           mkdir -p iso-config
-          
-          # Create family configuration that gets baked into the ISO
           cat > iso-config/guardian-family.conf << EOF
           GUARDIAN_FAMILY_ID="${{ inputs.family_id }}"
           GUARDIAN_BUILD_ID="${{ inputs.build_id }}"
@@ -79,7 +91,6 @@ jobs:
           GUARDIAN_SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
           EOF
           
-          # Store public key for signature verification
           cat > iso-config/family-public-key.pem << 'KEYEOF'
           ${{ inputs.public_key }}
           KEYEOF
@@ -98,21 +109,16 @@ jobs:
 
       - name: Customize image for family
         run: |
-          # Create a container from the base image
           CONTAINER=$(buildah from ${{ env.IMAGE_REGISTRY }}/${{ env.BASE_IMAGE }}:${{ steps.variant.outputs.variant }} 2>/dev/null || \
                       buildah from ghcr.io/ublue-os/${{ steps.variant.outputs.base }}:stable)
           
-          # Copy family config into the image
+          buildah run $CONTAINER mkdir -p /etc/guardian
           buildah copy $CONTAINER iso-config/guardian-family.conf /etc/guardian/family.conf
           buildah copy $CONTAINER iso-config/family-public-key.pem /etc/guardian/family-public-key.pem
-          
-          # Set permissions
           buildah run $CONTAINER chmod 644 /etc/guardian/family.conf
           buildah run $CONTAINER chmod 644 /etc/guardian/family-public-key.pem
           
-          # Commit the customized image
           buildah commit $CONTAINER guardian-family-${{ inputs.family_name }}:${{ inputs.build_id }}
-          
           echo "Customized image created"
 
       - name: Generate ISO
@@ -120,26 +126,17 @@ jobs:
         run: |
           ISO_NAME="guardian-${{ inputs.family_name }}-${{ inputs.device_type }}-${{ inputs.build_id }}.iso"
           
-          # Use bootc or lorax to generate ISO from OCI image
-          # This is a simplified placeholder - actual ISO generation depends on your tooling
-          
-          # For now, create a marker file
-          echo "ISO generation would happen here"
+          # TODO: Use bootc/lorax for actual ISO generation
+          echo "ISO generation placeholder"
           echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
           echo "iso_path=/tmp/${ISO_NAME}" >> $GITHUB_OUTPUT
-          
-          # Placeholder: touch the file for testing
           touch "/tmp/${ISO_NAME}"
 
       - name: Upload ISO to storage
         id: upload
         run: |
-          # Upload to your storage (R2, S3, etc.)
-          # For now, we'll use GitHub releases or artifacts
-          
           ISO_URL="https://github.com/${{ github.repository }}/releases/download/builds/${{ steps.iso.outputs.iso_name }}"
           echo "iso_url=${ISO_URL}" >> $GITHUB_OUTPUT
-          
           echo "ISO would be uploaded to: ${ISO_URL}"
 
       - name: Notify build complete
