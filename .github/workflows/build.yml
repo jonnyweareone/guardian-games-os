@@ -49,11 +49,11 @@ jobs:
 
       - name: Login to GHCR
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: Build Container Image
         run: |
-          podman build \
+          sudo podman build \
             --build-arg BASE_IMAGE=bazzite \
             --build-arg BAZZITE_TAG=stable \
             --build-arg IMAGE_NAME=${{ env.IMAGE_NAME }}-main \
@@ -65,8 +65,8 @@ jobs:
       - name: Push Container Image
         if: github.event_name != 'pull_request'
         run: |
-          podman push ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main
-          podman push ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main-$(date +%Y%m%d)
+          sudo podman push ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          sudo podman push ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main-$(date +%Y%m%d)
 
       - name: Generate ISO with bootc
         if: github.event_name != 'pull_request' && (github.event.inputs.build_iso == 'true' || github.event.inputs.build_iso == '')
@@ -98,7 +98,8 @@ jobs:
           fi
           
           # Rename to our standard name
-          mv "$ISO_PATH" "./iso-output/${ISO_NAME}"
+          sudo mv "$ISO_PATH" "./iso-output/${ISO_NAME}"
+          sudo chown $(id -u):$(id -g) "./iso-output/${ISO_NAME}"
           
           echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
           echo "iso_path=./iso-output/${ISO_NAME}" >> $GITHUB_OUTPUT
@@ -142,4 +143,4 @@ jobs:
         if: always()
         run: |
           sudo rm -rf ./iso-output || true
-          podman system prune -f || true
+          sudo podman system prune -f || true
