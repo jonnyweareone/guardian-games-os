@@ -31,7 +31,7 @@ jobs:
   build-iso:
     runs-on: self-hosted
     permissions:
-      contents: read
+      contents: write
       packages: read
 
     steps:
@@ -109,19 +109,45 @@ jobs:
         id: iso
         run: |
           ISO_NAME="guardian-${{ inputs.family_name }}-${{ inputs.device_type }}-${{ inputs.build_id }}.iso"
+          ISO_PATH="${GITHUB_WORKSPACE}/${ISO_NAME}"
           
-          # TODO: Use bootc/lorax for actual ISO generation
-          echo "ISO generation placeholder"
+          # For now, create a placeholder ISO with the family config embedded
+          # TODO: Replace with actual bootc/lorax ISO generation
+          mkdir -p iso-staging
+          cp -r iso-config iso-staging/
+          echo "Guardian OS Family ISO" > iso-staging/README.txt
+          echo "Family: ${{ inputs.family_name }}" >> iso-staging/README.txt
+          echo "Build: ${{ inputs.build_id }}" >> iso-staging/README.txt
+          echo "Type: ${{ inputs.device_type }}" >> iso-staging/README.txt
+          
+          # Create a simple ISO with xorriso
+          xorriso -as mkisofs -o "${ISO_PATH}" -V "GUARDIAN_OS" -R -J iso-staging/
+          
           echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
-          echo "iso_path=/tmp/${ISO_NAME}" >> $GITHUB_OUTPUT
-          touch "/tmp/${ISO_NAME}"
+          echo "iso_path=${ISO_PATH}" >> $GITHUB_OUTPUT
+          ls -lh "${ISO_PATH}"
 
-      - name: Upload ISO to storage
+      - name: Upload ISO as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardian-iso-${{ inputs.build_id }}
+          path: ${{ steps.iso.outputs.iso_path }}
+          retention-days: 30
+
+      - name: Create Release and Upload ISO
         id: upload
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          # Create or get the builds release
+          gh release view builds 2>/dev/null || gh release create builds --title "Guardian OS Builds" --notes "Family ISO builds" --latest=false
+          
+          # Upload the ISO to the release
+          gh release upload builds "${{ steps.iso.outputs.iso_path }}" --clobber
+          
           ISO_URL="https://github.com/${{ github.repository }}/releases/download/builds/${{ steps.iso.outputs.iso_name }}"
           echo "iso_url=${ISO_URL}" >> $GITHUB_OUTPUT
-          echo "ISO would be uploaded to: ${ISO_URL}"
+          echo "ISO uploaded to: ${ISO_URL}"
 
       - name: Notify build complete
         if: success()
