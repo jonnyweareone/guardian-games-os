@@ -33,87 +33,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-container:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # Main desktop variant only for now
-          - variant: main
-            base_image: bazzite
-            description: "Desktop with AMD/Intel GPU"
-
-    outputs:
-      image_tag: ${{ steps.meta.outputs.version }}
-      image_digest: ${{ steps.build.outputs.digest }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to GHCR
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=${{ matrix.variant }}
-            type=raw,value=${{ matrix.variant }}-{{date 'YYYYMMDD'}}
-            type=sha,prefix=${{ matrix.variant }}-
-
-      - name: Build Image
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Containerfile
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            BASE_IMAGE=${{ matrix.base_image }}
-            BAZZITE_TAG=stable
-            IMAGE_NAME=${{ env.IMAGE_NAME }}-${{ matrix.variant }}
-            IMAGE_TAG=${{ matrix.variant }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Install Cosign
-        if: github.event_name != 'pull_request'
-        uses: sigstore/cosign-installer@v3
-
-      - name: Sign Image
-        if: github.event_name != 'pull_request' && env.SIGNING_SECRET != ''
-        run: |
-          cosign sign -y --key env://COSIGN_PRIVATE_KEY \
-            ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.variant }}
-        env:
-          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-
-  build-iso:
-    needs: build-container
-    if: github.event_name != 'pull_request' && (github.event.inputs.build_iso == 'true' || github.event.inputs.build_iso == '')
+  build:
     runs-on: self-hosted
     permissions:
       contents: write
-      packages: read
+      packages: write
+      id-token: write
 
     steps:
       - name: Checkout
@@ -126,11 +51,25 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u ${{ github.actor }} --password-stdin
 
-      - name: Pull Guardian Games OS image
+      - name: Build Container Image
         run: |
-          podman pull ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          podman build \
+            --build-arg BASE_IMAGE=bazzite \
+            --build-arg BAZZITE_TAG=stable \
+            --build-arg IMAGE_NAME=${{ env.IMAGE_NAME }}-main \
+            --build-arg IMAGE_TAG=main \
+            -t ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main \
+            -t ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main-$(date +%Y%m%d) \
+            -f ./Containerfile .
+
+      - name: Push Container Image
+        if: github.event_name != 'pull_request'
+        run: |
+          podman push ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main
+          podman push ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main-$(date +%Y%m%d)
 
       - name: Generate ISO with bootc
+        if: github.event_name != 'pull_request' && (github.event.inputs.build_iso == 'true' || github.event.inputs.build_iso == '')
         id: iso
         run: |
           ISO_NAME="guardian-games-os-$(date +%Y%m%d).iso"
@@ -139,7 +78,6 @@ jobs:
           mkdir -p ./iso-output
           
           # Use bootc to generate ISO from container
-          # This creates a bootable ISO from the OCI image
           sudo podman run --rm --privileged \
             --security-opt label=type:unconfined_t \
             -v ./iso-output:/output \
@@ -167,6 +105,7 @@ jobs:
           ls -lh "./iso-output/${ISO_NAME}"
 
       - name: Upload ISO as artifact
+        if: steps.iso.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: guardian-games-os-iso
@@ -174,6 +113,7 @@ jobs:
           retention-days: 30
 
       - name: Create/Update Release
+        if: steps.iso.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -201,5 +141,5 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          sudo rm -rf ./iso-output
+          sudo rm -rf ./iso-output || true
           podman system prune -f || true
