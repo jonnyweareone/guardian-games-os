@@ -1,0 +1,34 @@
+// Guardian Parental Controls - Polkit Rules
+// Prevents child accounts from modifying parental settings
+
+polkit.addRule(function(action, subject) {
+    // Block children from modifying system settings
+    if (action.id.indexOf("org.freedesktop.systemd1.manage-units") >= 0 ||
+        action.id.indexOf("org.freedesktop.packagekit") >= 0 ||
+        action.id.indexOf("org.freedesktop.policykit") >= 0) {
+        
+        // Check if user is a child (member of guardian-child group)
+        if (subject.isInGroup("guardian-child")) {
+            return polkit.Result.AUTH_ADMIN;
+        }
+    }
+    
+    // Guardian-specific actions
+    if (action.id.indexOf("org.guardian") >= 0) {
+        // Only parents can modify Guardian settings
+        if (action.id == "org.guardian.modify-parental-settings") {
+            if (subject.isInGroup("guardian-parent")) {
+                return polkit.Result.YES;
+            } else {
+                return polkit.Result.AUTH_ADMIN;
+            }
+        }
+        
+        // Children can request game approval
+        if (action.id == "org.guardian.request-game-approval") {
+            return polkit.Result.YES;
+        }
+    }
+    
+    return polkit.Result.NOT_HANDLED;
+});

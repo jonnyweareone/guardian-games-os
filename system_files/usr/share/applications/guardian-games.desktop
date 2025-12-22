@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Guardian Games
+Comment=Family-friendly game launcher with parental controls
+Exec=guardian-games %U
+Icon=guardian-games
+Terminal=false
+Type=Application
+Categories=Game;
+Keywords=games;gaming;steam;epic;gog;heroic;parental;
+StartupNotify=true
+StartupWMClass=guardian-games
+MimeType=x-scheme-handler/guardian-games;

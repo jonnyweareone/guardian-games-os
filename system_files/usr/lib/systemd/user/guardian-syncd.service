@@ -1,0 +1,25 @@
+[Unit]
+Description=Guardian Profile Sync Daemon
+Documentation=https://github.com/guardian-network/guardian-games-os
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/guardian/syncd
+Restart=on-failure
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.config/guardian %h/.local/share/guardian
+PrivateTmp=yes
+
+# Environment
+Environment=GUARDIAN_CONFIG_DIR=%h/.config/guardian
+Environment=GUARDIAN_DATA_DIR=%h/.local/share/guardian
+
+[Install]
+WantedBy=default.target

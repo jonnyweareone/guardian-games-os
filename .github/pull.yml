@@ -1,0 +1,28 @@
+# Configuration for the Pull app: https://github.com/apps/pull
+# Keeps this repo in sync with upstream Bazzite
+
+version: "1"
+
+rules:
+  # Create a tracking branch for Bazzite main
+  - base: bazzite-upstream
+    upstream: ublue-os/bazzite:main
+    mergeMethod: hardreset
+    mergeUnstable: false
+
+  # Merge upstream changes into our main branch
+  - base: main
+    upstream: bazzite-upstream
+    mergeMethod: merge
+    mergeUnstable: false
+    label: ":arrow_heading_down: upstream-sync"
+    conflictLabel: "merge-conflict"
+
+# How it works:
+# 1. Pull app watches ublue-os/bazzite:main
+# 2. When Bazzite updates, it hardresets our bazzite-upstream branch
+# 3. Then it merges bazzite-upstream into our main branch
+# 4. Our CI rebuilds the Guardian Games OS image with latest Bazzite
+#
+# This means we get all Bazzite updates automatically while keeping
+# our Guardian-specific changes on top.

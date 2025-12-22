@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "sync": {
+    "enabled": true,
+    "server_url": "",
+    "sync_interval_mins": 15,
+    "sync_on_login": true,
+    "sync_on_logout": true,
+    "sync_items": [
+      "dconf",
+      "wallpapers",
+      "game-saves"
+    ]
+  },
+  "parental": {
+    "enabled": false,
+    "require_parent_pin": true,
+    "default_max_rating": "PEGI_12"
+  },
+  "screen_time": {
+    "enabled": false,
+    "warn_before_mins": 15,
+    "grace_period_mins": 5
+  },
+  "games": {
+    "require_approval": false,
+    "show_unapproved": true,
+    "allowed_stores": ["epic", "gog", "steam"]
+  }
+}

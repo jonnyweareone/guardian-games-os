@@ -1,0 +1,23 @@
+[Unit]
+Description=Guardian Screen Time Enforcer
+Documentation=https://github.com/guardian-network/guardian-games-os
+After=guardian-syncd.service
+Wants=guardian-syncd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/guardian/screen-time
+Restart=on-failure
+RestartSec=5
+
+# Security
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.config/guardian %h/.local/share/guardian
+
+# Environment
+Environment=GUARDIAN_CONFIG_DIR=%h/.config/guardian
+
+[Install]
+WantedBy=default.target

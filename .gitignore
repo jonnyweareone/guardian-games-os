@@ -1,0 +1,22 @@
+# Build outputs
+*.iso
+output/
+
+# Keys - NEVER commit private keys
+cosign.key
+*.pem
+*.key
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.bak
