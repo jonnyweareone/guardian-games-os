@@ -1,0 +1,175 @@
+# =============================================================================
+# Guardian Games OS v2 - COSMIC Edition
+# Built on Universal Blue's COSMIC image with full Rust stack
+# =============================================================================
+#
+# Philosophy: Rust-native family gaming OS
+# - COSMIC desktop (Rust/iced) for modern, consistent UX
+# - All Guardian components in Rust - no Electron, no runtime deps
+# - Launcher-as-gatekeeper for parental control
+# - Native COSMIC integration (applets, settings, notifications)
+#
+# =============================================================================
+
+ARG FEDORA_VERSION="${FEDORA_VERSION:-41}"
+ARG BASE_IMAGE="ghcr.io/ublue-os/cosmic"
+
+FROM ${BASE_IMAGE}:${FEDORA_VERSION}
+
+# =============================================================================
+# Image Metadata
+# =============================================================================
+
+ARG IMAGE_NAME="${IMAGE_NAME:-guardian-games-cosmic}"
+ARG IMAGE_VENDOR="${IMAGE_VENDOR:-Guardian Network Solutions}"
+ARG IMAGE_VERSION="${IMAGE_VERSION:-2.0.0}"
+
+LABEL org.opencontainers.image.title="${IMAGE_NAME}"
+LABEL org.opencontainers.image.vendor="${IMAGE_VENDOR}"
+LABEL org.opencontainers.image.version="${IMAGE_VERSION}"
+LABEL org.opencontainers.image.description="Rust-native family gaming OS on COSMIC desktop"
+LABEL org.opencontainers.image.source="https://github.com/guardian-network/guardian-games-os"
+
+# =============================================================================
+# Gaming Support (Controllers + Performance)
+# =============================================================================
+
+RUN rpm-ostree install \
+    # Controller support
+    game-devices-udev \
+    libratbag \
+    # Gaming performance
+    gamemode \
+    # Vulkan for games
+    vulkan-loader \
+    vulkan-tools \
+    # For Steam/Proton (users install via Flatpak, but need these)
+    mesa-vulkan-drivers \
+    mesa-va-drivers \
+    # Notifications
+    libnotify \
+    # JSON parsing for scripts
+    jq \
+    && rpm-ostree cleanup -m
+
+# =============================================================================
+# Guardian System Files
+# =============================================================================
+
+# Guardian configuration
+COPY etc/guardian/ /etc/guardian/
+
+# Systemd services
+COPY usr/lib/systemd/system/ /usr/lib/systemd/system/
+COPY usr/lib/systemd/user/ /usr/lib/systemd/user/
+
+# Polkit rules - lock down child accounts
+COPY usr/share/polkit-1/rules.d/ /usr/share/polkit-1/rules.d/
+
+# Desktop entries
+COPY usr/share/applications/ /usr/share/applications/
+
+# Sudoers rules
+COPY etc/sudoers.d/ /etc/sudoers.d/
+
+# COSMIC-specific: custom settings schema (if needed)
+# COPY usr/share/cosmic/ /usr/share/cosmic/
+
+# =============================================================================
+# Guardian Binaries (Rust - all native, no runtime deps)
+# =============================================================================
+
+# Guardian Daemon - system service
+# Handles: policy sync, monitoring, malcontent-style enforcement, commands
+COPY --chmod=755 binaries/guardian-daemon /usr/bin/guardian-daemon
+
+# Guardian Selector - boot-time child picker (Rust/iced GUI)
+COPY --chmod=755 binaries/guardian-selector /usr/bin/guardian-selector
+
+# Guardian Launcher - game library UI (Rust/iced, replaces Electron)
+COPY --chmod=755 binaries/guardian-launcher /usr/bin/guardian-launcher
+
+# Guardian Settings - parental controls panel (Rust/iced)
+COPY --chmod=755 binaries/guardian-settings /usr/bin/guardian-settings
+
+# Guardian Wizard - first-boot activation (Rust/iced)
+COPY --chmod=755 binaries/guardian-wizard /usr/bin/guardian-wizard
+
+# COSMIC Applet - system tray widget showing time remaining
+# COPY --chmod=755 binaries/cosmic-applet-guardian /usr/bin/cosmic-applet-guardian
+
+# =============================================================================
+# User Groups
+# =============================================================================
+
+# Create guardian-child group (members get restricted access)
+RUN grep -q "^guardian-child:" /etc/group || \
+    echo "guardian-child:x:1500:" >> /etc/group
+
+# Create guardian-parent group (for admin access)
+RUN grep -q "^guardian-parent:" /etc/group || \
+    echo "guardian-parent:x:1501:" >> /etc/group
+
+# =============================================================================
+# Enable Services
+# =============================================================================
+
+# Guardian daemon runs at boot (system-level)
+RUN systemctl enable guardian-daemon.service || true
+
+# Selector runs before display manager
+RUN systemctl enable guardian-selector.service || true
+
+# =============================================================================
+# Data Directories
+# =============================================================================
+
+RUN mkdir -p /var/lib/guardian/profiles \
+             /var/lib/guardian/sessions \
+             /var/lib/guardian/cache \
+             /var/log/guardian && \
+    chmod 755 /var/lib/guardian /var/log/guardian
+
+# =============================================================================
+# Flatpak Gaming Apps (pre-configured remotes)
+# =============================================================================
+
+# Ensure Flathub is available for gaming apps
+RUN flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo || true
+
+# =============================================================================
+# Branding
+# =============================================================================
+
+RUN mkdir -p /usr/lib/os-release.d && \
+    cat > /usr/lib/os-release.d/guardian << 'EOF'
+NAME="Guardian Games OS"
+PRETTY_NAME="Guardian Games OS 2.0 (COSMIC)"
+ID=guardian-games
+ID_LIKE=fedora
+VERSION="2.0"
+VARIANT="COSMIC"
+HOME_URL="https://guardian.family"
+SUPPORT_URL="https://guardian.family/support"
+BUG_REPORT_URL="https://github.com/guardian-network/guardian-games-os/issues"
+EOF
+
+# Image info for tooling
+RUN cat > /usr/share/ublue-os/image-info.json << EOF
+{
+  "image-name": "${IMAGE_NAME}",
+  "image-vendor": "${IMAGE_VENDOR}",
+  "image-version": "${IMAGE_VERSION}",
+  "base-image": "cosmic",
+  "fedora-version": "${FEDORA_VERSION}",
+  "desktop": "cosmic",
+  "guardian-stack": "rust"
+}
+EOF
+
+# =============================================================================
+# Cleanup & Commit
+# =============================================================================
+
+RUN rm -rf /tmp/* /var/tmp/* && \
+    ostree container commit

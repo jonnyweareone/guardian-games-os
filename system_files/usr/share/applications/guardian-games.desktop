@@ -1,12 +1,12 @@
 [Desktop Entry]
 Name=Guardian Games
-Comment=Family-friendly game launcher with parental controls
-Exec=guardian-games %U
+Comment=Safe gaming launcher with parental controls
+Exec=/opt/guardian-games/guardian-games-launcher
 Icon=guardian-games
 Terminal=false
 Type=Application
 Categories=Game;
-Keywords=games;gaming;steam;epic;gog;heroic;parental;
-StartupNotify=true
-StartupWMClass=guardian-games
-MimeType=x-scheme-handler/guardian-games;
+Keywords=games;steam;epic;gog;launcher;parental;
+StartupWMClass=Guardian Games
+X-GNOME-AutoRestart=true
+X-KDE-autostart-condition=GuardianGames

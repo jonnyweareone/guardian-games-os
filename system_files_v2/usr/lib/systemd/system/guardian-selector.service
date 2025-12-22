@@ -1,0 +1,25 @@
+# Guardian Selector - runs before display manager to pick child profile
+# Shows UI: "Who's using this device?" with child avatars
+
+[Unit]
+Description=Guardian Child Selector
+Documentation=https://guardian.family/docs
+After=systemd-user-sessions.service
+Before=display-manager.service gdm.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/guardian-selector
+RemainAfterExit=yes
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+
+# Environment
+Environment=GUARDIAN_CONFIG=/etc/guardian/config.json
+
+[Install]
+WantedBy=multi-user.target

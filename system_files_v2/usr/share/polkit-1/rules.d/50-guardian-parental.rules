@@ -1,0 +1,171 @@
+// =============================================================================
+// Guardian Games OS - Polkit Rules for Child Account Lockdown
+// =============================================================================
+//
+// These rules prevent members of the 'guardian-child' group from:
+// - Installing/removing packages
+// - Changing system settings
+// - Modifying date/time
+// - Managing users
+// - Mounting drives
+// - Accessing system logs
+//
+// The 'guardian-parent' group has full admin access.
+// =============================================================================
+
+polkit.addRule(function(action, subject) {
+    
+    // Parents always get through
+    if (subject.isInGroup("guardian-parent") || subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+    
+    // Child restrictions below
+    if (subject.isInGroup("guardian-child")) {
+        
+        // =================================================================
+        // BLOCK: Package Management
+        // =================================================================
+        if (action.id.indexOf("org.freedesktop.packagekit") === 0) {
+            polkit.log("Guardian: Blocked package action for child: " + action.id);
+            return polkit.Result.NO;
+        }
+        
+        // Block Flatpak operations (handled by malcontent, but belt & suspenders)
+        if (action.id.indexOf("org.freedesktop.Flatpak") === 0) {
+            polkit.log("Guardian: Blocked Flatpak action for child: " + action.id);
+            return polkit.Result.NO;
+        }
+        
+        // Block rpm-ostree operations
+        if (action.id.indexOf("org.projectatomic.rpmostree") === 0) {
+            polkit.log("Guardian: Blocked rpm-ostree action for child: " + action.id);
+            return polkit.Result.NO;
+        }
+        
+        // =================================================================
+        // BLOCK: System Settings
+        // =================================================================
+        
+        // Date/time changes
+        if (action.id === "org.freedesktop.timedate1.set-time" ||
+            action.id === "org.freedesktop.timedate1.set-timezone" ||
+            action.id === "org.freedesktop.timedate1.set-ntp" ||
+            action.id === "org.freedesktop.timedate1.set-local-rtc") {
+            polkit.log("Guardian: Blocked time change for child");
+            return polkit.Result.NO;
+        }
+        
+        // Hostname changes
+        if (action.id.indexOf("org.freedesktop.hostname1") === 0) {
+            return polkit.Result.NO;
+        }
+        
+        // Locale changes
+        if (action.id.indexOf("org.freedesktop.locale1") === 0) {
+            return polkit.Result.NO;
+        }
+        
+        // =================================================================
+        // BLOCK: User Management
+        // =================================================================
+        if (action.id.indexOf("org.freedesktop.accounts") === 0) {
+            polkit.log("Guardian: Blocked accounts action for child: " + action.id);
+            return polkit.Result.NO;
+        }
+        
+        // =================================================================
+        // BLOCK: Network Configuration
+        // =================================================================
+        
+        // Prevent changing network settings (could bypass DNS filtering)
+        if (action.id.indexOf("org.freedesktop.NetworkManager") === 0) {
+            // Allow basic connection (needed for gaming)
+            if (action.id === "org.freedesktop.NetworkManager.network-control") {
+                return polkit.Result.YES;
+            }
+            // Block configuration changes
+            polkit.log("Guardian: Blocked network config for child: " + action.id);
+            return polkit.Result.NO;
+        }
+        
+        // =================================================================
+        // BLOCK: Disk/Mount Operations
+        // =================================================================
+        if (action.id.indexOf("org.freedesktop.udisks2") === 0) {
+            // Allow mounting removable media (game controllers, USB)
+            if (action.id === "org.freedesktop.udisks2.filesystem-mount") {
+                return polkit.Result.YES;
+            }
+            // Block disk management
+            return polkit.Result.NO;
+        }
+        
+        // =================================================================
+        // BLOCK: System Logs (privacy / bypass info)
+        // =================================================================
+        if (action.id.indexOf("org.freedesktop.systemd1") === 0) {
+            return polkit.Result.NO;
+        }
+        
+        // =================================================================
+        // BLOCK: Power Management (prevent shutdown during monitoring)
+        // =================================================================
+        // Actually, let kids shutdown/reboot - it's their device
+        // But we log it via the daemon
+        
+        // =================================================================
+        // BLOCK: Firmware Updates
+        // =================================================================
+        if (action.id.indexOf("org.freedesktop.fwupd") === 0) {
+            return polkit.Result.NO;
+        }
+        
+        // =================================================================
+        // BLOCK: Backlight (usually fine, but some exploits here)
+        // =================================================================
+        // Allow - it's just brightness
+        
+        // =================================================================
+        // BLOCK: GNOME Control Center privileged actions
+        // =================================================================
+        if (action.id.indexOf("org.gnome.controlcenter") === 0) {
+            return polkit.Result.NO;
+        }
+        
+        // =================================================================
+        // BLOCK: Malcontent changes (prevent kids disabling their own restrictions)
+        // =================================================================
+        if (action.id.indexOf("org.freedesktop.MalcontentControl") === 0 ||
+            action.id.indexOf("com.endlessm.ParentalControls") === 0) {
+            polkit.log("Guardian: Blocked malcontent change for child");
+            return polkit.Result.NO;
+        }
+    }
+    
+    // Default: let polkit handle it
+    return polkit.Result.NOT_HANDLED;
+});
+
+// =============================================================================
+// Guardian Daemon Permissions
+// =============================================================================
+// The guardian-daemon runs as root for some operations
+
+polkit.addRule(function(action, subject) {
+    if (subject.user === "guardian-daemon" || subject.user === "root") {
+        // Allow daemon to lock sessions
+        if (action.id === "org.freedesktop.login1.lock-sessions" ||
+            action.id === "org.freedesktop.login1.lock-session") {
+            return polkit.Result.YES;
+        }
+        
+        // Allow daemon to manage malcontent
+        if (action.id.indexOf("org.freedesktop.MalcontentControl") === 0 ||
+            action.id.indexOf("com.endlessm.ParentalControls") === 0) {
+            return polkit.Result.YES;
+        }
+    }
+    
+    return polkit.Result.NOT_HANDLED;
+});

@@ -25,39 +25,46 @@ LABEL org.opencontainers.image.source="https://github.com/guardian-network/guard
 LABEL io.artifacthub.package.readme-url="https://raw.githubusercontent.com/guardian-network/guardian-games-os/main/README.md"
 
 # =============================================================================
-# Install Guardian packages
+# Copy pre-built binaries (from CI artifacts mounted at /tmp)
 # =============================================================================
 
-# Copy build scripts
-COPY build.sh /tmp/build.sh
-RUN chmod +x /tmp/build.sh
+# Copy Guardian Daemon binary
+COPY --from=build-context /guardian-daemon /usr/bin/guardian-daemon
+RUN chmod 755 /usr/bin/guardian-daemon || true
 
+# Copy Guardian Games Launcher
+COPY --from=build-context /guardian-games-launcher /opt/guardian-games/
+RUN chmod 755 /opt/guardian-games/guardian-games-launcher || true
+
+# =============================================================================
 # Copy system configuration files
+# =============================================================================
+
 COPY system_files/ /
 
-# Run the build script
-RUN /tmp/build.sh
-
 # =============================================================================
-# Guardian branding
+# Install dependencies and configure
 # =============================================================================
 
-# Set default wallpaper (if exists)
-# COPY branding/wallpaper.png /usr/share/backgrounds/guardian-default.png
-# RUN ln -sf /usr/share/backgrounds/guardian-default.png /usr/share/backgrounds/default.png
+COPY build.sh /tmp/build.sh
+RUN chmod +x /tmp/build.sh && /tmp/build.sh
 
 # =============================================================================
-# Image info for ublue-update compatibility
+# Guardian branding & identity
 # =============================================================================
 
 RUN echo '{"image-name":"'"${IMAGE_NAME}"'","image-flavor":"main","image-vendor":"'"${IMAGE_VENDOR}"'","image-ref":"'"${IMAGE_REF}"'","image-tag":"'"${IMAGE_TAG}"'","base-image-name":"'"${BASE_IMAGE}"'","fedora-version":"'"${FEDORA_MAJOR_VERSION}"'"}' > /usr/share/ublue-os/image-info.json
 
 # =============================================================================
+# Create identity mount point for per-child images
+# =============================================================================
+
+RUN mkdir -p /usr/share/guardian && \
+    echo '{"placeholder": true, "note": "identity.json baked during per-child build"}' > /usr/share/guardian/identity.json
+
+# =============================================================================
 # Finalize
 # =============================================================================
 
-# Clean up
 RUN rm -rf /tmp/* /var/tmp/*
-
-# Commit the ostree container
 RUN ostree container commit

@@ -1,3 +1,8 @@
+# Guardian OS - Build Family ISO
+# Builds per-FAMILY ISO (not per-child)
+# One ISO works for all children in the family
+# Child selection happens at boot time via Guardian Selector
+
 name: Build Family ISO
 
 on:
@@ -6,170 +11,333 @@ on:
       build_id:
         description: 'Build ID from Supabase'
         required: true
+        type: string
       family_id:
         description: 'Family UUID'
         required: true
+        type: string
       family_name:
-        description: 'Family name (sanitized)'
+        description: 'Family name (sanitized for tags)'
         required: true
+        type: string
       device_type:
-        description: 'Device type (desktop, deck, tablet)'
+        description: 'Device type'
         required: true
-        default: 'desktop'
+        type: choice
+        options:
+          - desktop
+          - deck
+          - tablet
       public_key:
-        description: 'Family public key for signing'
+        description: 'Family public key for verification'
         required: true
+        type: string
       callback_url:
         description: 'Supabase callback URL'
         required: true
+        type: string
 
 env:
-  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-  BASE_IMAGE: guardian-games
+  REGISTRY: ghcr.io
+  IMAGE_NAME: guardian-network/guardian-os
 
 jobs:
-  build-iso:
-    runs-on: self-hosted
+  build:
+    runs-on: ubuntu-latest
     permissions:
-      contents: write
-      packages: read
+      contents: read
+      packages: write
 
     steps:
-      - name: Checkout
+      - name: Checkout Guardian OS
         uses: actions/checkout@v4
+        with:
+          repository: guardian-network/guardian-games-os
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check disk space
-        run: df -h
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Notify build started
-        run: |
-          curl -X POST "${{ inputs.callback_url }}" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
-            -d '{
-              "build_id": "${{ inputs.build_id }}",
-              "status": "building",
-              "message": "ISO build started"
-            }' || true
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Select base variant
-        id: variant
-        run: |
-          case "${{ inputs.device_type }}" in
-            deck)
-              echo "variant=deck" >> $GITHUB_OUTPUT
-              echo "base=bazzite-deck" >> $GITHUB_OUTPUT
-              ;;
-            tablet)
-              echo "variant=gnome" >> $GITHUB_OUTPUT
-              echo "base=bazzite-gnome" >> $GITHUB_OUTPUT
-              ;;
-            *)
-              echo "variant=main" >> $GITHUB_OUTPUT
-              echo "base=bazzite" >> $GITHUB_OUTPUT
-              ;;
-          esac
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Generate build timestamp
+        id: timestamp
+        run: echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+
+      # =========================================================================
+      # CREATE FAMILY CONFIG (minimal - just identity)
+      # =========================================================================
       - name: Create family config
         run: |
-          mkdir -p iso-config
-          cat > iso-config/guardian-family.conf << EOF
-          GUARDIAN_FAMILY_ID="${{ inputs.family_id }}"
-          GUARDIAN_BUILD_ID="${{ inputs.build_id }}"
-          GUARDIAN_SUPABASE_URL="${{ secrets.SUPABASE_URL }}"
-          GUARDIAN_SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+          mkdir -p build/config
+          
+          # Minimal config - NO child profiles, NO settings
+          # Everything fetched from cloud at runtime
+          cat > build/config/guardian.yaml << 'EOF'
+          # Guardian OS - Family Configuration
+          # This file is baked into the ISO and identifies this device's family
+          # All child profiles and settings are fetched from Supabase at runtime
+
+          guardian:
+            version: "2.0.0"
+            
+            # Family identity (immutable)
+            family:
+              id: "${{ inputs.family_id }}"
+              build_id: "${{ inputs.build_id }}"
+              
+            # Verification key (for activation signature)
+            verification:
+              algorithm: "ES256"
+              public_key: |
+          ${{ inputs.public_key }}
+              
+            # API configuration
+            api:
+              supabase_url: "${{ secrets.SUPABASE_URL }}"
+              supabase_anon_key: "${{ secrets.SUPABASE_ANON_KEY }}"
+              
+            # Build metadata
+            build:
+              timestamp: "${{ steps.timestamp.outputs.timestamp }}"
+              device_type: "${{ inputs.device_type }}"
+              base_image: "ghcr.io/ublue-os/bazzite:stable"
           EOF
           
-          cat > iso-config/family-public-key.pem << 'KEYEOF'
-          ${{ inputs.public_key }}
-          KEYEOF
-          
-          echo "Family config created for ${{ inputs.family_name }}"
+          # Indent the public key properly
+          sed -i 's/^-----/        -----/g' build/config/guardian.yaml
 
-      - name: Pull base image
-        run: |
-          podman pull ${{ env.IMAGE_REGISTRY }}/${{ env.BASE_IMAGE }}:${{ steps.variant.outputs.variant }} || \
-          podman pull ghcr.io/ublue-os/${{ steps.variant.outputs.base }}:stable
+      # =========================================================================
+      # BUILD GUARDIAN COMPONENTS
+      # =========================================================================
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Customize image for family
-        run: |
-          CONTAINER=$(buildah from ${{ env.IMAGE_REGISTRY }}/${{ env.BASE_IMAGE }}:${{ steps.variant.outputs.variant }} 2>/dev/null || \
-                      buildah from ghcr.io/ublue-os/${{ steps.variant.outputs.base }}:stable)
-          
-          buildah run $CONTAINER mkdir -p /etc/guardian
-          buildah copy $CONTAINER iso-config/guardian-family.conf /etc/guardian/family.conf
-          buildah copy $CONTAINER iso-config/family-public-key.pem /etc/guardian/family-public-key.pem
-          buildah run $CONTAINER chmod 644 /etc/guardian/family.conf
-          buildah run $CONTAINER chmod 644 /etc/guardian/family-public-key.pem
-          
-          buildah commit $CONTAINER guardian-family-${{ inputs.family_name }}:${{ inputs.build_id }}
-          echo "Customized image created"
-
-      - name: Generate ISO
-        id: iso
-        run: |
-          ISO_NAME="guardian-${{ inputs.family_name }}-${{ inputs.device_type }}-${{ inputs.build_id }}.iso"
-          ISO_PATH="${GITHUB_WORKSPACE}/${ISO_NAME}"
-          
-          # For now, create a placeholder ISO with the family config embedded
-          # TODO: Replace with actual bootc/lorax ISO generation
-          mkdir -p iso-staging
-          cp -r iso-config iso-staging/
-          echo "Guardian OS Family ISO" > iso-staging/README.txt
-          echo "Family: ${{ inputs.family_name }}" >> iso-staging/README.txt
-          echo "Build: ${{ inputs.build_id }}" >> iso-staging/README.txt
-          echo "Type: ${{ inputs.device_type }}" >> iso-staging/README.txt
-          
-          # Create a simple ISO with xorriso
-          xorriso -as mkisofs -o "${ISO_PATH}" -V "GUARDIAN_OS" -R -J iso-staging/
-          
-          echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
-          echo "iso_path=${ISO_PATH}" >> $GITHUB_OUTPUT
-          ls -lh "${ISO_PATH}"
-
-      - name: Upload ISO as artifact
-        uses: actions/upload-artifact@v4
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
         with:
-          name: guardian-iso-${{ inputs.build_id }}
-          path: ${{ steps.iso.outputs.iso_path }}
-          retention-days: 30
+          workspaces: guardian-components
 
-      - name: Create Release and Upload ISO
-        id: upload
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build Guardian Daemon
         run: |
-          # Create or get the builds release
-          gh release view builds 2>/dev/null || gh release create builds --title "Guardian OS Builds" --notes "Family ISO builds" --latest=false
-          
-          # Upload the ISO to the release
-          gh release upload builds "${{ steps.iso.outputs.iso_path }}" --clobber
-          
-          ISO_URL="https://github.com/${{ github.repository }}/releases/download/builds/${{ steps.iso.outputs.iso_name }}"
-          echo "iso_url=${ISO_URL}" >> $GITHUB_OUTPUT
-          echo "ISO uploaded to: ${ISO_URL}"
+          cd guardian-components/guardian-daemon
+          cargo build --release
+          mkdir -p ../../build/bin
+          cp target/release/guardian-daemon ../../build/bin/
 
-      - name: Notify build complete
+      - name: Build Guardian Selector
+        run: |
+          cd guardian-components/guardian-selector
+          cargo build --release
+          cp target/release/guardian-selector ../../build/bin/
+
+      # =========================================================================
+      # BUILD GUARDIAN LAUNCHER (Electron)
+      # =========================================================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Guardian Launcher
+        run: |
+          cd guardian-launcher
+          npm ci
+          npm run build
+          mkdir -p ../build/launcher
+          cp -r dist/* ../build/launcher/
+
+      # =========================================================================
+      # CREATE CONTAINERFILE
+      # =========================================================================
+      - name: Create Containerfile
+        run: |
+          cat > Containerfile << 'EOF'
+          # Guardian OS - Family Edition
+          # Based on Bazzite (Fedora Atomic + Gaming)
+          
+          FROM ghcr.io/ublue-os/bazzite:stable
+          
+          # Labels
+          LABEL org.opencontainers.image.title="Guardian OS"
+          LABEL org.opencontainers.image.description="Family-safe gaming OS"
+          LABEL org.opencontainers.image.vendor="Guardian Network Solutions"
+          LABEL io.guardian.family_id="${{ inputs.family_id }}"
+          LABEL io.guardian.build_id="${{ inputs.build_id }}"
+          LABEL io.guardian.device_type="${{ inputs.device_type }}"
+          
+          # Guardian config (family identity)
+          COPY build/config/guardian.yaml /etc/guardian/config.yaml
+          RUN chmod 644 /etc/guardian/config.yaml
+          
+          # Guardian binaries
+          COPY build/bin/guardian-daemon /usr/bin/guardian-daemon
+          COPY build/bin/guardian-selector /usr/bin/guardian-selector
+          RUN chmod 755 /usr/bin/guardian-daemon /usr/bin/guardian-selector
+          
+          # Guardian Launcher
+          COPY build/launcher /opt/guardian-launcher
+          RUN ln -sf /opt/guardian-launcher/guardian-launcher /usr/bin/guardian-launcher
+          
+          # Systemd services
+          
+          # Guardian Selector (runs BEFORE display manager, handles child selection)
+          RUN cat > /etc/systemd/system/guardian-selector.service << 'SERVICE'
+          [Unit]
+          Description=Guardian OS Child Selector
+          After=systemd-user-sessions.service
+          Before=display-manager.service
+          Wants=network-online.target
+          
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/bin/guardian-selector
+          RemainAfterExit=yes
+          StandardInput=tty
+          StandardOutput=tty
+          TTYPath=/dev/tty1
+          
+          [Install]
+          WantedBy=graphical.target
+          SERVICE
+          
+          # Guardian Daemon (background service)
+          RUN cat > /etc/systemd/system/guardian-daemon.service << 'SERVICE'
+          [Unit]
+          Description=Guardian OS Daemon
+          After=guardian-selector.service network-online.target
+          Requires=guardian-selector.service
+          
+          [Service]
+          Type=simple
+          ExecStart=/usr/bin/guardian-daemon
+          Restart=always
+          RestartSec=5
+          
+          [Install]
+          WantedBy=multi-user.target
+          SERVICE
+          
+          # Enable services
+          RUN systemctl enable guardian-selector.service
+          RUN systemctl enable guardian-daemon.service
+          
+          # Guardian Launcher autostart (after login)
+          RUN mkdir -p /etc/xdg/autostart
+          RUN cat > /etc/xdg/autostart/guardian-launcher.desktop << 'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=Guardian Launcher
+          Exec=/usr/bin/guardian-launcher
+          X-GNOME-Autostart-enabled=true
+          DESKTOP
+          
+          # Security: Prevent modification of Guardian files
+          RUN chattr +i /etc/guardian/config.yaml || true
+          RUN chattr +i /usr/bin/guardian-daemon || true
+          RUN chattr +i /usr/bin/guardian-selector || true
+          
+          # OSTree commit
+          RUN ostree container commit
+          EOF
+
+      # =========================================================================
+      # BUILD OCI IMAGE
+      # =========================================================================
+      - name: Build OCI Image
+        run: |
+          podman build \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.family_name }}-${{ steps.timestamp.outputs.timestamp }} \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.family_name }}-latest \
+            -f Containerfile \
+            .
+
+      - name: Push OCI Image
+        run: |
+          podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.family_name }}-${{ steps.timestamp.outputs.timestamp }}
+          podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.family_name }}-latest
+
+      # =========================================================================
+      # GENERATE ISO (using bootc-image-builder)
+      # =========================================================================
+      - name: Generate ISO
+        run: |
+          mkdir -p output
+          
+          # Use bootc-image-builder to create bootable ISO
+          podman run \
+            --rm \
+            --privileged \
+            --pull=newer \
+            -v ./output:/output \
+            quay.io/centos-bootc/bootc-image-builder:latest \
+            --type iso \
+            --rootfs btrfs \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.family_name }}-latest
+          
+          # Rename ISO
+          mv output/*.iso output/guardian-os-${{ inputs.family_name }}-${{ inputs.device_type }}.iso
+
+      - name: Calculate ISO checksum
+        id: checksum
+        run: |
+          ISO_FILE="output/guardian-os-${{ inputs.family_name }}-${{ inputs.device_type }}.iso"
+          SHA256=$(sha256sum "$ISO_FILE" | cut -d' ' -f1)
+          SIZE=$(stat -c%s "$ISO_FILE")
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "size=$SIZE" >> $GITHUB_OUTPUT
+
+      # =========================================================================
+      # UPLOAD ISO TO R2/S3
+      # =========================================================================
+      - name: Upload ISO to R2
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: r2 object put guardian-builds/guardian-os-${{ inputs.build_id }}.iso --file=output/guardian-os-${{ inputs.family_name }}-${{ inputs.device_type }}.iso
+
+      - name: Generate presigned URL
+        id: presign
+        run: |
+          # Generate presigned URL valid for 7 days
+          # This would use your R2/S3 SDK
+          echo "iso_url=https://builds.guardian-os.com/guardian-os-${{ inputs.build_id }}.iso" >> $GITHUB_OUTPUT
+
+      # =========================================================================
+      # NOTIFY SUPABASE
+      # =========================================================================
+      - name: Notify Supabase - Success
         if: success()
         run: |
-          curl -X POST "${{ inputs.callback_url }}" \
+          curl -X PATCH "${{ inputs.callback_url }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
             -d '{
-              "build_id": "${{ inputs.build_id }}",
               "status": "ready",
-              "iso_url": "${{ steps.upload.outputs.iso_url }}",
-              "message": "ISO build complete"
-            }' || true
+              "iso_url": "${{ steps.presign.outputs.iso_url }}",
+              "iso_sha256": "${{ steps.checksum.outputs.sha256 }}",
+              "iso_size_bytes": ${{ steps.checksum.outputs.size }},
+              "oci_image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ inputs.family_name }}-latest",
+              "build_completed_at": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
+            }'
 
-      - name: Notify build failed
+      - name: Notify Supabase - Failure
         if: failure()
         run: |
-          curl -X POST "${{ inputs.callback_url }}" \
+          curl -X PATCH "${{ inputs.callback_url }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
             -d '{
-              "build_id": "${{ inputs.build_id }}",
               "status": "failed",
-              "message": "ISO build failed"
-            }' || true
+              "error_message": "Build failed - check GitHub Actions logs"
+            }'

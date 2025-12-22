@@ -1,0 +1,27 @@
+# Guardian User Agent - runs in user session
+# Handles: session tracking, app monitoring, screen time enforcement
+
+[Unit]
+Description=Guardian User Agent
+Documentation=https://guardian.family/docs
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/guardian-daemon --user
+Restart=on-failure
+RestartSec=5
+
+# Environment
+Environment=RUST_LOG=info
+Environment=GUARDIAN_CONFIG=/etc/guardian/config.json
+Environment=GUARDIAN_MODE=user
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=guardian-agent
+
+[Install]
+WantedBy=graphical-session.target

@@ -1,0 +1,68 @@
+{
+  "version": "2.0",
+  "supabase_url": "https://gkyspvcafyttfhyjryyk.supabase.co",
+  "supabase_anon_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdreXNwdmNhZnl0dGZoeWpyeXlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxMDIzMzQsImV4cCI6MjA4MTY3ODMzNH0.Ns5N9Y9uZgWqdhnYiX5IrubOO-Xopl2urBDR1AVD7FI",
+  "nakama_host": "games.gameguardian.ai",
+  "nakama_port": 443,
+  "nakama_use_ssl": true,
+  
+  "sync": {
+    "interval_secs": 30,
+    "heartbeat_interval_secs": 60,
+    "offline_cache_hours": 168
+  },
+  
+  "paths": {
+    "data_dir": "/var/lib/guardian",
+    "profiles_dir": "/var/lib/guardian/profiles",
+    "sessions_dir": "/var/lib/guardian/sessions",
+    "cache_dir": "/var/lib/guardian/cache",
+    "log_dir": "/var/log/guardian"
+  },
+  
+  "features": {
+    "screen_time_enforcement": true,
+    "app_monitoring": true,
+    "session_tracking": true,
+    "remote_commands": true,
+    "malcontent_integration": true,
+    "dconf_profile_sync": true,
+    "game_library_scan": true
+  },
+  
+  "game_sources": {
+    "steam": {
+      "enabled": true,
+      "library_paths": [
+        "~/.local/share/Steam/steamapps",
+        "~/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps"
+      ]
+    },
+    "heroic": {
+      "enabled": true,
+      "config_path": "~/.config/heroic"
+    },
+    "lutris": {
+      "enabled": true,
+      "config_path": "~/.config/lutris"
+    },
+    "flatpak": {
+      "enabled": true,
+      "scan_for_games": true
+    }
+  },
+  
+  "malcontent": {
+    "default_oars_level": "moderate",
+    "block_app_installation": true,
+    "block_system_installation": true
+  },
+  
+  "dns": {
+    "provider": "nextdns",
+    "default_profile": "guardian-family",
+    "enforce_safe_search": true
+  },
+  
+  "log_level": "info"
+}

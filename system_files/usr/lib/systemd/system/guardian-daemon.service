@@ -1,0 +1,26 @@
+[Unit]
+Description=Guardian OS Safety Daemon
+Documentation=https://guardian.family/docs
+After=network-online.target graphical.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/guardian-daemon
+Restart=always
+RestartSec=5
+Environment=RUST_LOG=info
+Environment=GUARDIAN_CONFIG=/etc/guardian/config.json
+
+# Security hardening
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+
+# Watchdog
+WatchdogSec=60
+NotifyAccess=main
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+{
+  "supabase_url": "https://gkyspvcafyttfhyjryyk.supabase.co",
+  "supabase_anon_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdreXNwdmNhZnl0dGZoeWpyeXlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYxMDIzMzQsImV4cCI6MjA4MTY3ODMzNH0.Ns5N9Y9uZgWqdhnYiX5IrubOO-Xopl2urBDR1AVD7FI",
+  "nakama_host": "192.248.163.171",
+  "nakama_port": 7350,
+  "sync_interval_secs": 30,
+  "heartbeat_interval_secs": 60,
+  "data_dir": "/var/lib/guardian",
+  "log_level": "info",
+  "features": {
+    "screen_time_enforcement": true,
+    "app_monitoring": true,
+    "browser_monitoring": true,
+    "voice_transcription": false,
+    "intervention_system": true
+  }
+}

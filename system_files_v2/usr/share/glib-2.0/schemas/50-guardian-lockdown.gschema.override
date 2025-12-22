@@ -1,0 +1,104 @@
+# =============================================================================
+# Guardian Games OS - GNOME Lockdown Schema Override
+# =============================================================================
+#
+# This file defines DEFAULT settings. The guardian-daemon applies per-user
+# overrides via dconf based on the child's experience_mode policy.
+#
+# Experience modes:
+#   kiosk             - Launcher only, no desktop access
+#   desktop_supervised - Desktop visible, heavy restrictions
+#   desktop_trusted    - Desktop visible, light restrictions
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Lockdown settings (applied to guardian-child group members)
+# These are DEFAULTS - daemon can loosen for desktop_trusted
+# -----------------------------------------------------------------------------
+
+[org.gnome.desktop.lockdown]
+# Prevent terminal access (major bypass vector)
+disable-command-line=true
+
+# Prevent switching to other users (kids shouldn't access parent account)
+disable-user-switching=true
+
+# Prevent printing (optional, but removes attack surface)
+disable-printing=false
+
+# Prevent saving to disk from apps (prevents downloading bypasses)
+disable-save-to-disk=false
+
+# Lock down settings app (prevent changing restrictions)
+disable-lock-screen=false
+
+# -----------------------------------------------------------------------------
+# Shell configuration
+# -----------------------------------------------------------------------------
+
+[org.gnome.shell]
+# Only show guardian launcher by default
+# Daemon will add more based on allowed apps
+favorite-apps=['guardian-games.desktop', 'org.gnome.Nautilus.desktop']
+
+# Disable extension installation (prevents bypasses)
+disable-user-extensions=true
+
+# Disable looking glass (JS console - major bypass)
+development-tools=false
+
+# -----------------------------------------------------------------------------
+# GNOME Software - Restrict app installation
+# -----------------------------------------------------------------------------
+
+[org.gnome.software]
+# Disable installing apps (parent must approve)
+allow-updates=false
+download-updates=false
+
+# -----------------------------------------------------------------------------
+# Session settings
+# -----------------------------------------------------------------------------
+
+[org.gnome.desktop.session]
+# Idle timeout - daemon can lock screen for bedtime
+idle-delay=uint32 300
+
+[org.gnome.desktop.screensaver]
+# Lock on idle (prevent walking away to bypass time limits)
+lock-enabled=true
+lock-delay=uint32 0
+
+# -----------------------------------------------------------------------------
+# Privacy settings
+# -----------------------------------------------------------------------------
+
+[org.gnome.desktop.privacy]
+# We handle our own tracking
+report-technical-problems=false
+send-software-usage-stats=false
+
+# -----------------------------------------------------------------------------
+# Search settings
+# -----------------------------------------------------------------------------
+
+[org.gnome.desktop.search-providers]
+# Disable online search (privacy + inappropriate content)
+disable-external=true
+
+# -----------------------------------------------------------------------------
+# Default apps - use safe defaults
+# -----------------------------------------------------------------------------
+
+[org.gnome.desktop.default-applications.terminal]
+# If terminal IS allowed (desktop_trusted), use our monitored one
+exec='gnome-terminal'
+
+# -----------------------------------------------------------------------------
+# Notifications - allow but daemon can filter
+# -----------------------------------------------------------------------------
+
+[org.gnome.desktop.notifications]
+show-banners=true
+show-in-lock-screen=false

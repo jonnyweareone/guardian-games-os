@@ -1,0 +1,16 @@
+# Guardian OS sudoers rules
+# Child users have NO sudo access
+# Guardian daemon has limited passwordless access for enforcement
+
+# Deny all sudo to guardian-child group
+%guardian-child ALL=(ALL) !ALL
+
+# Guardian daemon can run specific enforcement commands
+guardian-daemon ALL=(ALL) NOPASSWD: /usr/bin/loginctl lock-session *
+guardian-daemon ALL=(ALL) NOPASSWD: /usr/bin/loginctl terminate-session *
+guardian-daemon ALL=(ALL) NOPASSWD: /usr/bin/notify-send *
+guardian-daemon ALL=(ALL) NOPASSWD: /usr/bin/malcontent-client *
+guardian-daemon ALL=(ALL) NOPASSWD: /usr/bin/dconf *
+
+# Root can do everything (for parent admin account)
+root ALL=(ALL) ALL

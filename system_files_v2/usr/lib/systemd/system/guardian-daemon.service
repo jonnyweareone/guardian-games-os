@@ -1,0 +1,39 @@
+# Guardian Daemon - runs as system service at boot
+# Handles: device activation check, profile loading, malcontent sync
+
+[Unit]
+Description=Guardian OS Daemon
+Documentation=https://guardian.family/docs
+After=network-online.target accounts-daemon.service
+Wants=network-online.target
+Requires=accounts-daemon.service
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/guardian-daemon --system
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/guardian /var/log/guardian
+PrivateTmp=true
+
+# Watchdog
+WatchdogSec=120
+NotifyAccess=main
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=guardian-daemon
+
+# Environment
+Environment=RUST_LOG=info
+Environment=GUARDIAN_CONFIG=/etc/guardian/config.json
+Environment=GUARDIAN_MODE=system
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,93 @@
+# =============================================================================
+# Guardian Games OS v2
+# Built on Bazzite with Guardian parental controls
+# =============================================================================
+
+ARG FEDORA_VERSION="${FEDORA_VERSION:-41}"
+
+FROM ghcr.io/ublue-os/bazzite:stable
+
+# =============================================================================
+# Image Metadata
+# =============================================================================
+
+LABEL org.opencontainers.image.title="Guardian Games OS"
+LABEL org.opencontainers.image.vendor="Guardian Network Solutions"
+LABEL org.opencontainers.image.description="Family gaming OS with parental controls"
+LABEL org.opencontainers.image.source="https://github.com/jonnyweareone/guardian-games-os"
+
+# =============================================================================
+# Guardian Binaries (from CI artifacts)
+# =============================================================================
+
+# Guardian Daemon (Rust) - background service for policy sync
+COPY --chmod=755 binaries/guardian-daemon /usr/bin/guardian-daemon
+
+# Guardian Launcher (Rust/iced) - game launcher UI  
+COPY --chmod=755 binaries/guardian-launcher /opt/guardian-games/guardian-launcher
+RUN mkdir -p /opt/guardian-games && \
+    ln -sf /opt/guardian-games/guardian-launcher /usr/bin/guardian-games
+
+# =============================================================================
+# Guardian System Files
+# =============================================================================
+
+# Configuration
+COPY system_files/etc/guardian/ /etc/guardian/
+
+# Systemd services
+COPY system_files/usr/lib/systemd/system/ /usr/lib/systemd/system/
+COPY system_files/usr/lib/systemd/user/ /usr/lib/systemd/user/
+
+# Polkit rules
+COPY system_files/usr/share/polkit-1/ /usr/share/polkit-1/
+
+# Desktop entries
+COPY system_files/usr/share/applications/ /usr/share/applications/
+
+# =============================================================================
+# Install Dependencies & Configure
+# =============================================================================
+
+RUN rpm-ostree install \
+    malcontent \
+    malcontent-control \
+    && rpm-ostree cleanup -m
+
+# Compile schemas if we have any
+RUN glib-compile-schemas /usr/share/glib-2.0/schemas/ || true
+
+# Create guardian groups
+RUN grep -q "^guardian-child:" /etc/group || echo "guardian-child:x:1500:" >> /etc/group && \
+    grep -q "^guardian-parent:" /etc/group || echo "guardian-parent:x:1501:" >> /etc/group
+
+# Enable daemon service
+RUN systemctl enable guardian-daemon.service || true
+
+# Data directories
+RUN mkdir -p /var/lib/guardian/profiles \
+             /var/lib/guardian/sessions \
+             /var/lib/guardian/cache \
+             /var/log/guardian && \
+    chmod 755 /var/lib/guardian /var/log/guardian
+
+# =============================================================================
+# Branding
+# =============================================================================
+
+RUN cat > /usr/share/ublue-os/image-info.json << 'EOF'
+{
+  "image-name": "guardian-games",
+  "image-vendor": "Guardian Network Solutions", 
+  "image-version": "2.0",
+  "base-image": "bazzite",
+  "description": "Family gaming OS with parental controls"
+}
+EOF
+
+# =============================================================================
+# Cleanup & Commit
+# =============================================================================
+
+RUN rm -rf /tmp/* /var/tmp/* && \
+    ostree container commit
