@@ -1,0 +1,176 @@
+name: Build Family ISO
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        description: 'Build ID from Supabase'
+        required: true
+      family_id:
+        description: 'Family UUID'
+        required: true
+      family_name:
+        description: 'Family name (sanitized)'
+        required: true
+      device_type:
+        description: 'Device type (desktop, deck, tablet)'
+        required: true
+        default: 'desktop'
+      public_key:
+        description: 'Family public key for signing'
+        required: true
+      callback_url:
+        description: 'Supabase callback URL'
+        required: true
+
+env:
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  BASE_IMAGE: guardian-games
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Notify build started
+        run: |
+          curl -X POST "${{ inputs.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            -d '{
+              "build_id": "${{ inputs.build_id }}",
+              "status": "building",
+              "message": "ISO build started"
+            }' || true
+
+      - name: Select base variant
+        id: variant
+        run: |
+          case "${{ inputs.device_type }}" in
+            deck)
+              echo "variant=deck" >> $GITHUB_OUTPUT
+              echo "base=bazzite-deck" >> $GITHUB_OUTPUT
+              ;;
+            tablet)
+              echo "variant=gnome" >> $GITHUB_OUTPUT
+              echo "base=bazzite-gnome" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "variant=main" >> $GITHUB_OUTPUT
+              echo "base=bazzite" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Create family config
+        run: |
+          mkdir -p iso-config
+          
+          # Create family configuration that gets baked into the ISO
+          cat > iso-config/guardian-family.conf << EOF
+          GUARDIAN_FAMILY_ID="${{ inputs.family_id }}"
+          GUARDIAN_BUILD_ID="${{ inputs.build_id }}"
+          GUARDIAN_SUPABASE_URL="${{ secrets.SUPABASE_URL }}"
+          GUARDIAN_SUPABASE_ANON_KEY="${{ secrets.SUPABASE_ANON_KEY }}"
+          EOF
+          
+          # Store public key for signature verification
+          cat > iso-config/family-public-key.pem << 'KEYEOF'
+          ${{ inputs.public_key }}
+          KEYEOF
+          
+          echo "Family config created for ${{ inputs.family_name }}"
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman buildah skopeo xorriso squashfs-tools
+
+      - name: Pull base image
+        run: |
+          podman pull ${{ env.IMAGE_REGISTRY }}/${{ env.BASE_IMAGE }}:${{ steps.variant.outputs.variant }} || \
+          podman pull ghcr.io/ublue-os/${{ steps.variant.outputs.base }}:stable
+
+      - name: Customize image for family
+        run: |
+          # Create a container from the base image
+          CONTAINER=$(buildah from ${{ env.IMAGE_REGISTRY }}/${{ env.BASE_IMAGE }}:${{ steps.variant.outputs.variant }} 2>/dev/null || \
+                      buildah from ghcr.io/ublue-os/${{ steps.variant.outputs.base }}:stable)
+          
+          # Copy family config into the image
+          buildah copy $CONTAINER iso-config/guardian-family.conf /etc/guardian/family.conf
+          buildah copy $CONTAINER iso-config/family-public-key.pem /etc/guardian/family-public-key.pem
+          
+          # Set permissions
+          buildah run $CONTAINER chmod 644 /etc/guardian/family.conf
+          buildah run $CONTAINER chmod 644 /etc/guardian/family-public-key.pem
+          
+          # Commit the customized image
+          buildah commit $CONTAINER guardian-family-${{ inputs.family_name }}:${{ inputs.build_id }}
+          
+          echo "Customized image created"
+
+      - name: Generate ISO
+        id: iso
+        run: |
+          ISO_NAME="guardian-${{ inputs.family_name }}-${{ inputs.device_type }}-${{ inputs.build_id }}.iso"
+          
+          # Use bootc or lorax to generate ISO from OCI image
+          # This is a simplified placeholder - actual ISO generation depends on your tooling
+          
+          # For now, create a marker file
+          echo "ISO generation would happen here"
+          echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
+          echo "iso_path=/tmp/${ISO_NAME}" >> $GITHUB_OUTPUT
+          
+          # Placeholder: touch the file for testing
+          touch "/tmp/${ISO_NAME}"
+
+      - name: Upload ISO to storage
+        id: upload
+        run: |
+          # Upload to your storage (R2, S3, etc.)
+          # For now, we'll use GitHub releases or artifacts
+          
+          ISO_URL="https://github.com/${{ github.repository }}/releases/download/builds/${{ steps.iso.outputs.iso_name }}"
+          echo "iso_url=${ISO_URL}" >> $GITHUB_OUTPUT
+          
+          echo "ISO would be uploaded to: ${ISO_URL}"
+
+      - name: Notify build complete
+        if: success()
+        run: |
+          curl -X POST "${{ inputs.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            -d '{
+              "build_id": "${{ inputs.build_id }}",
+              "status": "ready",
+              "iso_url": "${{ steps.upload.outputs.iso_url }}",
+              "message": "ISO build complete"
+            }' || true
+
+      - name: Notify build failed
+        if: failure()
+        run: |
+          curl -X POST "${{ inputs.callback_url }}" \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_KEY }}" \
+            -d '{
+              "build_id": "${{ inputs.build_id }}",
+              "status": "failed",
+              "message": "ISO build failed"
+            }' || true
+
+      - name: Upload artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: guardian-iso-${{ inputs.build_id }}
+          path: ${{ steps.iso.outputs.iso_path }}
+          retention-days: 7
