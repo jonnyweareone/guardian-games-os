@@ -15,6 +15,8 @@ ARG IMAGE_NAME="${IMAGE_NAME:-guardian-games}"
 ARG IMAGE_VENDOR="${IMAGE_VENDOR:-Guardian Network}"
 ARG IMAGE_REF="${IMAGE_REF:-ghcr.io/guardian-network/guardian-games}"
 ARG IMAGE_TAG="${IMAGE_TAG:-latest}"
+ARG BASE_IMAGE="${BASE_IMAGE:-bazzite}"
+ARG FEDORA_MAJOR_VERSION="${FEDORA_MAJOR_VERSION:-41}"
 
 LABEL org.opencontainers.image.title="${IMAGE_NAME}"
 LABEL org.opencontainers.image.vendor="${IMAGE_VENDOR}"
@@ -48,17 +50,7 @@ RUN /tmp/build.sh
 # Image info for ublue-update compatibility
 # =============================================================================
 
-RUN cat > /usr/share/ublue-os/image-info.json << EOF
-{
-  "image-name": "${IMAGE_NAME}",
-  "image-flavor": "main",
-  "image-vendor": "${IMAGE_VENDOR}",
-  "image-ref": "${IMAGE_REF}",
-  "image-tag": "${IMAGE_TAG}",
-  "base-image-name": "${BASE_IMAGE}",
-  "fedora-version": "${FEDORA_MAJOR_VERSION}"
-}
-EOF
+RUN echo '{"image-name":"'"${IMAGE_NAME}"'","image-flavor":"main","image-vendor":"'"${IMAGE_VENDOR}"'","image-ref":"'"${IMAGE_REF}"'","image-tag":"'"${IMAGE_TAG}"'","base-image-name":"'"${BASE_IMAGE}"'","fedora-version":"'"${FEDORA_MAJOR_VERSION}"'"}' > /usr/share/ublue-os/image-info.json
 
 # =============================================================================
 # Finalize
