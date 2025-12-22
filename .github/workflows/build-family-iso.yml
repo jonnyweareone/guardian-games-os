@@ -29,23 +29,12 @@ env:
 
 jobs:
   build-iso:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     permissions:
       contents: read
       packages: read
 
     steps:
-      - name: Maximize disk space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 4096
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
-
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -96,11 +85,6 @@ jobs:
           KEYEOF
           
           echo "Family config created for ${{ inputs.family_name }}"
-
-      - name: Install tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y podman buildah skopeo xorriso squashfs-tools
 
       - name: Pull base image
         run: |
@@ -163,11 +147,3 @@ jobs:
               "status": "failed",
               "message": "ISO build failed"
             }' || true
-
-      - name: Upload artifact
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: guardian-iso-${{ inputs.build_id }}
-          path: ${{ steps.iso.outputs.iso_path }}
-          retention-days: 7
