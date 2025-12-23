@@ -19,10 +19,6 @@ on:
         description: 'Force rebuild even if no changes'
         required: false
         default: 'false'
-      build_iso:
-        description: 'Build ISO after container'
-        required: false
-        default: 'true'
 
 env:
   IMAGE_NAME: guardian-games
@@ -68,79 +64,25 @@ jobs:
           sudo podman push ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main
           sudo podman push ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main-$(date +%Y%m%d)
 
-      - name: Generate ISO with bootc
-        if: github.event_name != 'pull_request' && (github.event.inputs.build_iso == 'true' || github.event.inputs.build_iso == '')
-        id: iso
+      - name: Print Installation Instructions
         run: |
-          ISO_NAME="guardian-games-os-$(date +%Y%m%d).iso"
-          
-          # Create output directory
-          mkdir -p ./iso-output
-          
-          # Use bootc to generate ISO from container
-          sudo podman run --rm --privileged \
-            --security-opt label=type:unconfined_t \
-            -v ./iso-output:/output \
-            -v /var/lib/containers/storage:/var/lib/containers/storage \
-            quay.io/centos-bootc/bootc-image-builder:latest \
-            --type iso \
-            --rootfs ext4 \
-            --local \
-            ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main
-          
-          # Find the generated ISO
-          ISO_PATH=$(find ./iso-output -name "*.iso" -type f | head -1)
-          
-          if [ -z "$ISO_PATH" ]; then
-            echo "ERROR: No ISO found in output"
-            ls -la ./iso-output/
-            exit 1
-          fi
-          
-          # Rename to our standard name
-          sudo mv "$ISO_PATH" "./iso-output/${ISO_NAME}"
-          sudo chown $(id -u):$(id -g) "./iso-output/${ISO_NAME}"
-          
-          echo "iso_name=${ISO_NAME}" >> $GITHUB_OUTPUT
-          echo "iso_path=./iso-output/${ISO_NAME}" >> $GITHUB_OUTPUT
-          ls -lh "./iso-output/${ISO_NAME}"
-
-      - name: Upload ISO as artifact
-        if: steps.iso.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: guardian-games-os-iso
-          path: ${{ steps.iso.outputs.iso_path }}
-          retention-days: 30
-
-      - name: Create/Update Release
-        if: steps.iso.outcome == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Create or update the latest release
-          gh release view latest 2>/dev/null && gh release delete latest -y || true
-          gh release create latest \
-            --title "Guardian Games OS - Latest Build" \
-            --notes "Built on $(date +%Y-%m-%d)
-          
-          ## Download
-          - **guardian-games-os.iso** - Bootable installer
-          
-          ## Installation
-          1. Download the ISO
-          2. Flash to USB with Balena Etcher or similar
-          3. Boot from USB
-          4. Follow the installer
-          5. On first boot, link your device to your Guardian account
-          " \
-            --latest
-          
-          # Upload the ISO
-          gh release upload latest "${{ steps.iso.outputs.iso_path }}" --clobber
+          echo ""
+          echo "=============================================="
+          echo "  Guardian Games OS Container Built!"
+          echo "=============================================="
+          echo ""
+          echo "To install on a Bazzite/Fedora Atomic system:"
+          echo ""
+          echo "  rpm-ostree rebase ostree-unverified-image:docker://${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main"
+          echo "  systemctl reboot"
+          echo ""
+          echo "Or use the signed image:"
+          echo ""
+          echo "  rpm-ostree rebase ostree-image-signed:docker://${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:main"
+          echo ""
+          echo "=============================================="
 
       - name: Cleanup
         if: always()
         run: |
-          sudo rm -rf ./iso-output || true
           sudo podman system prune -f || true
