@@ -56,12 +56,12 @@ LABEL io.artifacthub.package.readme-url="https://raw.githubusercontent.com/jonny
 
 # Copy Guardian Daemon binary
 COPY --from=builder /build/guardian-os-v1/guardian-components/guardian-daemon/target/release/guardian-daemon /usr/bin/guardian-daemon
-RUN chmod 755 /usr/bin/guardian-daemon
 
-# Copy Guardian Games Launcher - create dir first
-RUN mkdir -p /opt/guardian-games
-COPY --from=builder /build/guardian-launcher/target/release/guardian-launcher /opt/guardian-games/guardian-launcher
-RUN chmod 755 /opt/guardian-games/guardian-launcher
+# Copy Guardian Games Launcher to /usr/bin (simpler, avoids /opt issues)
+COPY --from=builder /build/guardian-launcher/target/release/guardian-launcher /usr/bin/guardian-launcher
+
+# Set permissions
+RUN chmod 755 /usr/bin/guardian-daemon /usr/bin/guardian-launcher
 
 # =============================================================================
 # Copy system configuration files
