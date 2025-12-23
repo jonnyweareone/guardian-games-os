@@ -1,4 +1,10 @@
 # =============================================================================
+# Global ARGs (must be before FROM to use in FROM line)
+# =============================================================================
+ARG BAZZITE_TAG=stable
+ARG BASE_IMAGE=bazzite
+
+# =============================================================================
 # Stage 1: Build Rust binaries
 # =============================================================================
 FROM docker.io/library/rust:latest AS builder
@@ -25,19 +31,18 @@ RUN git clone --depth 1 https://github.com/jonnyweareone/guardian-launcher.git &
 # =============================================================================
 # Stage 2: Guardian Games OS
 # =============================================================================
-ARG FEDORA_MAJOR_VERSION="${FEDORA_MAJOR_VERSION:-41}"
-ARG BAZZITE_TAG="${BAZZITE_TAG:-stable}"
-ARG BASE_IMAGE="${BASE_IMAGE:-bazzite}"
+ARG BAZZITE_TAG
+ARG BASE_IMAGE
 
 FROM ghcr.io/ublue-os/${BASE_IMAGE}:${BAZZITE_TAG}
 
-# Image metadata
-ARG IMAGE_NAME="${IMAGE_NAME:-guardian-games}"
-ARG IMAGE_VENDOR="${IMAGE_VENDOR:-Guardian Network}"
-ARG IMAGE_REF="${IMAGE_REF:-ghcr.io/guardian-network/guardian-games}"
-ARG IMAGE_TAG="${IMAGE_TAG:-latest}"
-ARG BASE_IMAGE="${BASE_IMAGE:-bazzite}"
-ARG FEDORA_MAJOR_VERSION="${FEDORA_MAJOR_VERSION:-41}"
+# Re-declare ARGs after FROM (they don't persist across stages)
+ARG IMAGE_NAME=guardian-games
+ARG IMAGE_VENDOR="Guardian Network"
+ARG IMAGE_REF=ghcr.io/jonnyweareone/guardian-games
+ARG IMAGE_TAG=latest
+ARG BASE_IMAGE=bazzite
+ARG FEDORA_MAJOR_VERSION=41
 
 LABEL org.opencontainers.image.title="${IMAGE_NAME}"
 LABEL org.opencontainers.image.vendor="${IMAGE_VENDOR}"
@@ -53,9 +58,10 @@ LABEL io.artifacthub.package.readme-url="https://raw.githubusercontent.com/jonny
 COPY --from=builder /build/guardian-os-v1/guardian-components/guardian-daemon/target/release/guardian-daemon /usr/bin/guardian-daemon
 RUN chmod 755 /usr/bin/guardian-daemon
 
-# Copy Guardian Games Launcher
+# Copy Guardian Games Launcher - create dir first
+RUN mkdir -p /opt/guardian-games
 COPY --from=builder /build/guardian-launcher/target/release/guardian-launcher /opt/guardian-games/guardian-launcher
-RUN mkdir -p /opt/guardian-games && chmod 755 /opt/guardian-games/guardian-launcher
+RUN chmod 755 /opt/guardian-games/guardian-launcher
 
 # =============================================================================
 # Copy system configuration files
